@@ -3,25 +3,37 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import { getEnv } from './env.js';
+import { createClient } from '@libsql/client';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const defaultPath = join(__dirname, '..', 'database', 'securedove.db');
 let configuredPath = getEnv('DB_PATH', defaultPath);
+const tursoUrl = getEnv('TURSO_DATABASE_URL', '');
+const tursoAuthToken = getEnv('TURSO_AUTH_TOKEN', '');
 
 // In Vercel serverless, refuse silent ephemeral DB unless explicitly allowed
 const isVercel = !!process.env.VERCEL;
 const allowEphemeral = (getEnv('ALLOW_EPHEMERAL_DB', '').toLowerCase() === 'true');
-if (isVercel) {
-  if (process.env.DB_PATH && process.env.DB_PATH !== defaultPath) {
-    configuredPath = process.env.DB_PATH;
-  } else if (allowEphemeral) {
-    configuredPath = '/tmp/securedove.db';
-    console.warn('[DB] Using EPHEMERAL /tmp SQLite on Vercel (ALLOW_EPHEMERAL_DB=true). Data will not persist.');
-  } else {
-    console.error('[DB] Persistent database not configured. Set DB_PATH to a managed database or enable ALLOW_EPHEMERAL_DB for demo-only.');
-    configuredPath = null;
+
+// If TURSO_DATABASE_URL is set, use the Turso (libSQL) client instead of local sqlite
+const useTurso = !!tursoUrl;
+if (useTurso) {
+  console.log('[DB] TURSO_DATABASE_URL detected - using Turso (libSQL) client for database');
+}
+
+if (!useTurso) {
+  if (isVercel) {
+    if (process.env.DB_PATH && process.env.DB_PATH !== defaultPath) {
+      configuredPath = process.env.DB_PATH;
+    } else if (allowEphemeral) {
+      configuredPath = '/tmp/securedove.db';
+      console.warn('[DB] Using EPHEMERAL /tmp SQLite on Vercel (ALLOW_EPHEMERAL_DB=true). Data will not persist.');
+    } else {
+      console.error('[DB] Persistent database not configured. Set DB_PATH to a managed database or enable ALLOW_EPHEMERAL_DB for demo-only.');
+      configuredPath = null;
+    }
   }
 }
 
@@ -36,7 +48,7 @@ function ensureDirExists(path) {
   }
 }
 
-function createMinimalSchema(database) {
+async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
   const statements = [
     'PRAGMA foreign_keys = ON',
     `CREATE TABLE IF NOT EXISTS users (
@@ -94,15 +106,24 @@ function createMinimalSchema(database) {
     `CREATE INDEX IF NOT EXISTS idx_events_conversation ON conversation_events(conversation_id, created_at)`
   ];
 
+  if (isTursoClient) {
+    // Using libSQL client - execute statements sequentially
+    for (const stmt of statements) {
+      // libsql client execute may expect a simple call
+      await databaseOrClient.execute({ sql: stmt });
+    }
+    return;
+  }
+
   return new Promise((resolve, reject) => {
-    database.serialize(() => {
+    databaseOrClient.serialize(() => {
       const runNext = (index = 0) => {
         if (index >= statements.length) {
           resolve();
           return;
         }
 
-        database.run(statements[index], (err) => {
+        databaseOrClient.run(statements[index], (err) => {
           if (err) {
             reject(err);
             return;
@@ -116,7 +137,7 @@ function createMinimalSchema(database) {
   });
 }
 
-function normalizeExistingUsernames(database) {
+async function normalizeExistingUsernames(databaseOrClient, isTursoClient = false) {
   const cleanupStatements = [
     `UPDATE users SET username = LOWER(TRIM(username))`,
     `UPDATE contacts SET contact_username = LOWER(TRIM(contact_username))`,
@@ -127,15 +148,26 @@ function normalizeExistingUsernames(database) {
     `CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique_nocase ON users(username COLLATE NOCASE)`
   ];
 
+  if (isTursoClient) {
+    for (const stmt of cleanupStatements) {
+      try {
+        await databaseOrClient.execute({ sql: stmt });
+      } catch (e) {
+        // best-effort: ignore failures in cleanup
+      }
+    }
+    return;
+  }
+
   return new Promise((resolve) => {
-    database.serialize(() => {
+    databaseOrClient.serialize(() => {
       const runNext = (index = 0) => {
         if (index >= cleanupStatements.length) {
           resolve();
           return;
         }
 
-        database.run(cleanupStatements[index], () => runNext(index + 1));
+        databaseOrClient.run(cleanupStatements[index], () => runNext(index + 1));
       };
 
       runNext();
@@ -143,7 +175,22 @@ function normalizeExistingUsernames(database) {
   });
 }
 
-function openDatabase(path) {
+async function openDatabase(path) {
+  // If using Turso/libSQL, create a client and run migrations there
+  if (useTurso) {
+    if (!tursoUrl) throw new Error('TURSO_DATABASE_URL is not configured');
+    try {
+      const client = createClient({ url: tursoUrl, auth: { token: tursoAuthToken } });
+      // Run schema and cleanup on Turso
+      await createMinimalSchema(client, true);
+      await normalizeExistingUsernames(client, true);
+      console.log('[DB] Connected to Turso (libSQL) database');
+      return client; // return client as db handle
+    } catch (e) {
+      throw e;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     try {
       if (!path) {
@@ -177,7 +224,7 @@ try {
   db = await openDatabase(configuredPath);
 } catch (err) {
   console.error('Primary database open failed:', err?.message || err);
-  if (isVercel && allowEphemeral) {
+  if (!useTurso && isVercel && allowEphemeral) {
     try {
       // Last-resort: in-memory DB for demo only
       db = await openDatabase(':memory:');
@@ -192,7 +239,18 @@ try {
 }
 
 // Helper function to run queries with promises
-export const run = (sql, params = []) => {
+// If using Turso (libSQL) `db` will be a client with an execute method.
+export const run = async (sql, params = []) => {
+  if (useTurso) {
+    try {
+      const res = await db.execute({ sql, args: params });
+      // libSQL doesn't expose lastID in a consistent way; return best-effort shape
+      return { id: res?.lastInsertRowid ?? null, changes: res?.meta?.changes ?? (res?.rows?.length ?? 0) };
+    } catch (e) {
+      throw e;
+    }
+  }
+
   return new Promise((resolve, reject) => {
     db.run(sql, params, function(err) {
       if (err) {
@@ -205,7 +263,19 @@ export const run = (sql, params = []) => {
 };
 
 // Helper function to get single row
-export const get = (sql, params = []) => {
+export const get = async (sql, params = []) => {
+  if (useTurso) {
+    const res = await db.execute({ sql, args: params });
+    // convert rows/columns to object rows
+    const cols = res?.columns || [];
+    const rows = (res?.rows || []).map(r => {
+      const obj = {};
+      for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
+      return obj;
+    });
+    return rows[0] || null;
+  }
+
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) {
@@ -218,7 +288,18 @@ export const get = (sql, params = []) => {
 };
 
 // Helper function to get all rows
-export const all = (sql, params = []) => {
+export const all = async (sql, params = []) => {
+  if (useTurso) {
+    const res = await db.execute({ sql, args: params });
+    const cols = res?.columns || [];
+    const rows = (res?.rows || []).map(r => {
+      const obj = {};
+      for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
+      return obj;
+    });
+    return rows;
+  }
+
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) {
