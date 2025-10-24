@@ -55,7 +55,7 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
     'PRAGMA foreign_keys = ON',
     `CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL,
       public_key TEXT NOT NULL,
       salt TEXT NOT NULL,
@@ -155,9 +155,7 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
     `UPDATE contacts SET contact_username = LOWER(TRIM(contact_username))`,
     `UPDATE conversations SET username = LOWER(TRIM(username))`,
     `UPDATE messages SET sender_username = LOWER(TRIM(sender_username)) WHERE sender_username IS NOT NULL`,
-    `UPDATE conversation_events SET actor_username = LOWER(TRIM(actor_username)) WHERE actor_username IS NOT NULL`,
-    // Best-effort: enforce case-insensitive uniqueness (will be skipped if duplicates exist)
-    `CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique_nocase ON users(username COLLATE NOCASE)`
+    `UPDATE conversation_events SET actor_username = LOWER(TRIM(actor_username)) WHERE actor_username IS NOT NULL`
   ];
 
   if (isTursoClient) {
