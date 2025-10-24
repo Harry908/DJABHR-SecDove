@@ -80,8 +80,7 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
       username TEXT NOT NULL COLLATE NOCASE,
       encrypted_content_key TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      PRIMARY KEY (id, content_key_number, username),
-      FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+      PRIMARY KEY (id, content_key_number, username)
     )`,
     `CREATE INDEX IF NOT EXISTS idx_conversations_username ON conversations(username)`,
     `CREATE INDEX IF NOT EXISTS idx_conversations_id ON conversations(id)`,
@@ -93,8 +92,7 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
       sender_username TEXT COLLATE NOCASE,
       created_at INTEGER NOT NULL,
       updated_at INTEGER,
-      is_deleted INTEGER DEFAULT 0,
-      FOREIGN KEY (sender_username) REFERENCES users(username) ON DELETE SET NULL
+      is_deleted INTEGER DEFAULT 0
     )`,
     `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, content_key_number)`,
     `CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`,
@@ -104,8 +102,7 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
       type TEXT NOT NULL,
       actor_username TEXT COLLATE NOCASE,
       details TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (actor_username) REFERENCES users(username) ON DELETE SET NULL
+      created_at INTEGER NOT NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_events_conversation ON conversation_events(conversation_id, created_at)`
   ];

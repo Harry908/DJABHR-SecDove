@@ -244,8 +244,7 @@ export async function initializeDatabase() {
           username TEXT NOT NULL,
           encrypted_content_key TEXT NOT NULL,
           created_at INTEGER NOT NULL,
-          PRIMARY KEY (id, content_key_number, username),
-          FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+          PRIMARY KEY (id, content_key_number, username)
         )
       `);
 
