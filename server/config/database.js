@@ -360,14 +360,14 @@ export const get = async (sql, params = []) => {
       const res = await db.execute({ sql, args: params });
       // convert rows/columns to object rows
       const cols = res?.columns || [];
-      console.log('[DB] Query columns:', cols.map(c => c.name));
       const rows = (res?.rows || []).map(r => {
+        // For Turso, the row object already has the correct keys
+        // Use Object.keys() to get the column names from the row data
         const obj = {};
-        for (let i = 0; i < cols.length; i++) {
-          obj[cols[i].name] = r[i];
+        const columnNames = Object.keys(r);
+        for (let i = 0; i < columnNames.length; i++) {
+          obj[columnNames[i]] = r[columnNames[i]];
         }
-        console.log('[DB] Raw row data:', r);
-        console.log('[DB] Mapped row:', obj);
         return convertBigIntToNumber(obj);
       });
       return rows[0] || null;
@@ -403,9 +403,12 @@ export const all = async (sql, params = []) => {
       const res = await db.execute({ sql, args: params });
       const cols = res?.columns || [];
       const rows = (res?.rows || []).map(r => {
+        // For Turso, the row object already has the correct keys
+        // Use Object.keys() to get the column names from the row data
         const obj = {};
-        for (let i = 0; i < cols.length; i++) {
-          obj[cols[i].name] = r[i];
+        const columnNames = Object.keys(r);
+        for (let i = 0; i < columnNames.length; i++) {
+          obj[columnNames[i]] = r[columnNames[i]];
         }
         return convertBigIntToNumber(obj);
       });
