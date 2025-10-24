@@ -1,10 +1,25 @@
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const envPath = join(__dirname, '..', '.env');
+// Resolve .env path without using import.meta.url so this file works when
+// compiled to CommonJS by some build environments.
+const possibleRoots = [
+  process.cwd(),
+  // If code is executed from repo root, server folder may be under ./server
+  join(process.cwd(), 'server')
+];
+
+let envPath = null;
+for (const root of possibleRoots) {
+  const candidate = join(root, '.env');
+  if (fs.existsSync(candidate)) {
+    envPath = candidate;
+    break;
+  }
+}
+
+// Fallback to server/.env relative to current working directory
+if (!envPath) envPath = join(process.cwd(), 'server', '.env');
 
 const loadEnv = () => {
   if (!fs.existsSync(envPath)) return;

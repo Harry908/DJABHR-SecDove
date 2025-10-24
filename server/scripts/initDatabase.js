@@ -1,12 +1,10 @@
 import sqlite3 from 'sqlite3';
-import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const dbPath = join(__dirname, '..', 'database', 'securedove.db');
+// Resolve DB path relative to current working directory to avoid using
+// import.meta.url which isn't available in some compiled environments.
+const dbPath = join(process.cwd(), 'database', 'securedove.db');
 
 // Ensure database directory exists
 const dbDir = dirname(dbPath);

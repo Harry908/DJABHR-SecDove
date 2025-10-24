@@ -1,14 +1,13 @@
 import sqlite3 from 'sqlite3';
-import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import { getEnv } from './env.js';
 import { createClient } from '@libsql/client';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const defaultPath = join(__dirname, '..', 'database', 'securedove.db');
+// Prefer a database path relative to the current working directory so we
+// don't rely on import.meta.url which may not exist when code is compiled
+// to CommonJS in some environments.
+const defaultPath = join(process.cwd(), 'database', 'securedove.db');
 let configuredPath = getEnv('DB_PATH', defaultPath);
 const tursoUrl = getEnv('TURSO_DATABASE_URL', '');
 const tursoAuthToken = getEnv('TURSO_AUTH_TOKEN', '');

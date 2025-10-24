@@ -3,18 +3,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 
-// Resolve dirname in a way that works for both ESM (import.meta.url) and
-// compiled CommonJS (where import.meta is not available and __dirname exists).
-const resolvedDirname = (() => {
-  try {
-    // ESM environment
-    return dirname(fileURLToPath(import.meta.url));
-  } catch (e) {
-    // CommonJS fallback or other environments
-    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
-  }
-})();
-
+// Resolve dirname without using import.meta so this works when compiled to
+// CommonJS in serverless environments. Prefer process.cwd(), but fall back
+// to __dirname when available.
+const resolvedDirname = (typeof __dirname !== 'undefined') ? __dirname : process.cwd();
 const dbPath = join(resolvedDirname, '..', 'database', 'securedove.db');
 
 // Expected schema structure
