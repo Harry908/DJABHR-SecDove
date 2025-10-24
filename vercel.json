@@ -1,31 +1,34 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "buildCommand": "cd server && npm run build",
+  "outputDirectory": "server",
+  "installCommand": "cd server && npm install",
   "env": {
     "NODE_ENV": "production"
   },
   "functions": {
-    "api/test.js": {
+    "server/api/test.js": {
       "memory": 256,
       "maxDuration": 10
     },
-    "api/index.js": {
+    "server/api/index.js": {
       "memory": 1024,
       "maxDuration": 60
     },
-    "api/socketio.js": {
+    "server/api/socketio.js": {
       "memory": 1024,
       "maxDuration": 60
     },
-    "api/_health.js": {
+    "server/api/_health.js": {
       "memory": 256,
       "maxDuration": 10
     }
   },
   "rewrites": [
-    { "source": "/socket.io/(.*)", "destination": "/api/socketio" },
-    { "source": "/api/_health", "destination": "/api/_health" },
-    { "source": "/api/(.*)", "destination": "/api/index" }
+    { "source": "/socket.io/(.*)", "destination": "/server/api/socketio" },
+    { "source": "/api/_health", "destination": "/server/api/_health" },
+    { "source": "/api/test", "destination": "/server/api/test" },
+    { "source": "/api/(.*)", "destination": "/server/api/index" }
   ],
   "headers": [
     {
@@ -80,4 +83,3 @@
     }
   ]
 }
-
