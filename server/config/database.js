@@ -108,25 +108,21 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
   ];
 
   if (isTursoClient) {
-    // Execute statements individually for Turso to avoid batch processing issues
-    console.log(`[DB] Creating schema with ${statements.length} statements individually`);
+    // Filter out PRAGMA statements and prepare statements for batch execution
+    const validStatements = statements.filter(stmt =>
+      stmt && typeof stmt === 'string' && !stmt.trim().toUpperCase().startsWith('PRAGMA')
+    );
 
-    for (let i = 0; i < statements.length; i++) {
-      const stmt = statements[i];
-      if (!stmt || typeof stmt !== 'string') {
-        console.warn(`[DB] Skipping invalid statement at index ${i}:`, stmt);
-        continue;
-      }
+    console.log(`[DB] Creating schema with ${validStatements.length} statements via batch`);
 
-      try {
-        await databaseOrClient.execute({ sql: stmt });
-      } catch (e) {
-        console.error(`[DB] Failed to execute statement ${i}:`, stmt, e);
-        throw e;
-      }
+    try {
+      // Use batch execution for Turso
+      await databaseOrClient.batch(validStatements.map(sql => ({ sql, args: [] })));
+      console.log('[DB] Schema creation successful');
+    } catch (e) {
+      console.error('[DB] Batch schema creation failed:', e);
+      throw e;
     }
-
-    console.log('[DB] Schema creation successful');
     return;
   }
 
@@ -164,14 +160,13 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
   ];
 
   if (isTursoClient) {
-    // Execute cleanup statements individually for Turso
-    for (const stmt of cleanupStatements) {
-      try {
-        await databaseOrClient.execute({ sql: stmt });
-      } catch (e) {
-        // best-effort: ignore failures in cleanup
-        console.warn(`[DB] Cleanup statement failed (expected): ${stmt.substring(0, 50)}...`);
-      }
+    // Execute cleanup statements via batch for Turso - log but don't fail
+    try {
+      await databaseOrClient.batch(cleanupStatements.map(sql => ({ sql, args: [] })), "write");
+      console.log('[DB] Username normalization completed');
+    } catch (e) {
+      // Log the error but don't fail - cleanup is best-effort
+      console.warn(`[DB] Username normalization failed (non-critical): ${e.message}`);
     }
     return;
   }
@@ -184,7 +179,12 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
           return;
         }
 
-        databaseOrClient.run(cleanupStatements[index], () => runNext(index + 1));
+        databaseOrClient.run(cleanupStatements[index], (err) => {
+          if (err) {
+            console.warn(`[DB] Cleanup statement failed (non-critical): ${cleanupStatements[index].substring(0, 50)}...`);
+          }
+          runNext(index + 1);
+        });
       };
 
       runNext();
@@ -204,10 +204,12 @@ async function openDatabase(path) {
       console.log('[DB] Connected to Turso (libSQL) database');
       return client; // return client as db handle
     } catch (e) {
+      console.error('[DB] Turso connection failed:', e.message);
       throw e;
     }
   }
 
+  // Local SQLite database
   return new Promise((resolve, reject) => {
     try {
       if (!path) {
@@ -215,22 +217,36 @@ async function openDatabase(path) {
       }
       ensureDirExists(path);
       const database = new sqlite3.Database(path, async (err) => {
-        if (err) return reject(err);
-        console.log(`Connected to SQLite database at ${path}`);
+        if (err) {
+          console.error('[DB] SQLite connection failed:', err.message);
+          return reject(err);
+        }
+
+        console.log(`[DB] Connected to SQLite database at ${path}`);
+
         try {
           // Improve reliability for concurrent access
           await new Promise((res, rej) => database.exec(
             'PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;',
             (e) => e ? rej(e) : res()
           ));
+          console.log('[DB] SQLite PRAGMAs applied');
         } catch (e) {
-          console.warn('Warning applying PRAGMAs:', e?.message || e);
+          console.warn('[DB] Warning applying PRAGMAs:', e?.message || e);
         }
-        await createMinimalSchema(database);
-        await normalizeExistingUsernames(database);
-        resolve(database);
+
+        try {
+          await createMinimalSchema(database);
+          await normalizeExistingUsernames(database);
+          console.log('[DB] SQLite schema initialized');
+          resolve(database);
+        } catch (schemaError) {
+          console.error('[DB] Schema initialization failed:', schemaError.message);
+          reject(schemaError);
+        }
       });
     } catch (e) {
+      console.error('[DB] Database setup failed:', e.message);
       reject(e);
     }
   });
@@ -240,115 +256,170 @@ async function openDatabase(path) {
 // await initialization without relying on top-level await (which breaks in
 // some CommonJS-compiled environments).
 let db;
-let dbPromise;
+let dbInitialized = false;
+let dbInitializing = false;
 
-const getDbPromise = () => {
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      try {
-        db = await openDatabase(configuredPath);
-        return db;
-      } catch (err) {
-        console.error('Primary database open failed:', err?.message || err);
-        if (!useTurso && isVercel && allowEphemeral) {
-          try {
-            // Last-resort: in-memory DB for demo only
-            db = await openDatabase(':memory:');
-            console.warn('Using in-memory SQLite database (serverless fallback)');
-            return db;
-          } catch (e) {
-            console.error('Fallback in-memory database open failed:', e?.message || e);
-            throw e;
-          }
-        } else {
-          throw err;
-        }
-      }
-    })();
+const initializeDatabase = async () => {
+  if (dbInitialized) return db;
+  if (dbInitializing) {
+    // Wait for ongoing initialization
+    while (dbInitializing) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    return db;
   }
-  return dbPromise;
+
+  dbInitializing = true;
+
+  try {
+    db = await openDatabase(configuredPath);
+    dbInitialized = true;
+    console.log('[DB] Database initialized successfully');
+    return db;
+  } catch (err) {
+    console.error('Database initialization failed:', err?.message || err);
+    dbInitializing = false;
+    throw err;
+  }
 };
+
+// Simplified promise-based getter
+const getDbPromise = () => initializeDatabase();
 
 // Helper function to run queries with promises
 // If using Turso (libSQL) `db` will be a client with an execute method.
 export const run = async (sql, params = []) => {
+  if (!sql || typeof sql !== 'string') {
+    throw new Error('SQL query must be a non-empty string');
+  }
+
   // Ensure DB is initialized
   await getDbPromise();
 
-  if (useTurso) {
-    try {
+  try {
+    if (useTurso) {
       const res = await db.execute({ sql, args: params });
       // libSQL doesn't expose lastID in a consistent way; return best-effort shape
       return { id: res?.lastInsertRowid ?? null, changes: res?.meta?.changes ?? (res?.rows?.length ?? 0) };
-    } catch (e) {
-      throw e;
     }
-  }
 
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) {
-        reject(err);
-      } else {
-        resolve({ id: this.lastID, changes: this.changes });
-      }
+    return new Promise((resolve, reject) => {
+      db.run(sql, params, function(err) {
+        if (err) {
+          console.error('[DB] Run query failed:', sql.substring(0, 50), '...');
+          reject(err);
+        } else {
+          resolve({ id: this.lastID, changes: this.changes });
+        }
+      });
     });
-  });
+  } catch (error) {
+    console.error('[DB] Run operation failed:', error.message);
+    throw error;
+  }
 };
 
 // Helper function to get single row
 export const get = async (sql, params = []) => {
+  if (!sql || typeof sql !== 'string') {
+    throw new Error('SQL query must be a non-empty string');
+  }
+
   // Ensure DB is initialized
   await getDbPromise();
 
-  if (useTurso) {
-    const res = await db.execute({ sql, args: params });
-    // convert rows/columns to object rows
-    const cols = res?.columns || [];
-    const rows = (res?.rows || []).map(r => {
-      const obj = {};
-      for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
-      return obj;
-    });
-    return rows[0] || null;
-  }
+  try {
+    if (useTurso) {
+      const res = await db.execute({ sql, args: params });
+      // convert rows/columns to object rows
+      const cols = res?.columns || [];
+      const rows = (res?.rows || []).map(r => {
+        const obj = {};
+        for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
+        return obj;
+      });
+      return rows[0] || null;
+    }
 
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(row);
-      }
+    return new Promise((resolve, reject) => {
+      db.get(sql, params, (err, row) => {
+        if (err) {
+          console.error('[DB] Get query failed:', sql.substring(0, 50), '...');
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      });
     });
-  });
+  } catch (error) {
+    console.error('[DB] Get operation failed:', error.message);
+    throw error;
+  }
 };
 
 // Helper function to get all rows
 export const all = async (sql, params = []) => {
+  if (!sql || typeof sql !== 'string') {
+    throw new Error('SQL query must be a non-empty string');
+  }
+
   // Ensure DB is initialized
   await getDbPromise();
 
-  if (useTurso) {
-    const res = await db.execute({ sql, args: params });
-    const cols = res?.columns || [];
-    const rows = (res?.rows || []).map(r => {
-      const obj = {};
-      for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
-      return obj;
-    });
-    return rows;
-  }
+  try {
+    if (useTurso) {
+      const res = await db.execute({ sql, args: params });
+      const cols = res?.columns || [];
+      const rows = (res?.rows || []).map(r => {
+        const obj = {};
+        for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
+        return obj;
+      });
+      return rows;
+    }
 
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(rows);
-      }
+    return new Promise((resolve, reject) => {
+      db.all(sql, params, (err, rows) => {
+        if (err) {
+          console.error('[DB] All query failed:', sql.substring(0, 50), '...');
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
     });
-  });
+  } catch (error) {
+    console.error('[DB] All operation failed:', error.message);
+    throw error;
+  }
+};
+
+// Health check function for database connectivity
+export const healthCheck = async () => {
+  try {
+    // Ensure DB is initialized
+    await getDbPromise();
+
+    if (useTurso) {
+      await db.execute({ sql: "SELECT 1 as health_check", args: [] });
+    } else {
+      await new Promise((resolve, reject) => {
+        db.get("SELECT 1 as health_check", (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+    }
+
+    return { status: 'healthy', database: useTurso ? 'turso' : 'sqlite' };
+  } catch (error) {
+    console.error('[DB] Health check failed:', error.message);
+    return {
+      status: 'unhealthy',
+      database: useTurso ? 'turso' : 'sqlite',
+      error: error.message
+    };
+  }
 };
 
 export default db;

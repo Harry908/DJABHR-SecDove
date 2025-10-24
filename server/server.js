@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import helmet from 'helmet';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import { ensureDatabaseIntegrity } from './utils/databaseVerification.js';
+import { healthCheck } from './config/database.js';
 import { verifyToken } from './utils/auth.js';
 import authRoutes from './routes/auth.js';
 import contactsRoutes from './routes/contacts.js';
@@ -136,8 +137,23 @@ if (isDevelopment) {
   });
 }
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: Date.now(), environment: nodeEnv });
+app.get('/health', async (_req, res) => {
+  try {
+    const dbHealth = await healthCheck();
+    res.json({
+      status: dbHealth.status === 'healthy' ? 'ok' : 'error',
+      timestamp: Date.now(),
+      environment: nodeEnv,
+      database: dbHealth
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      timestamp: Date.now(),
+      environment: nodeEnv,
+      database: { status: 'unhealthy', error: error.message }
+    });
+  }
 });
 
 app.use('/api/auth', authRoutes);
