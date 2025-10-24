@@ -218,28 +218,38 @@ async function openDatabase(path) {
   });
 }
 
+// Initialize database asynchronously and expose a promise so callers can
+// await initialization without relying on top-level await (which breaks in
+// some CommonJS-compiled environments).
 let db;
-try {
-  db = await openDatabase(configuredPath);
-} catch (err) {
-  console.error('Primary database open failed:', err?.message || err);
-  if (!useTurso && isVercel && allowEphemeral) {
-    try {
-      // Last-resort: in-memory DB for demo only
-      db = await openDatabase(':memory:');
-      console.warn('Using in-memory SQLite database (serverless fallback)');
-    } catch (e) {
-      console.error('Fallback in-memory database open failed:', e?.message || e);
-      throw e;
+const dbPromise = (async () => {
+  try {
+    db = await openDatabase(configuredPath);
+    return db;
+  } catch (err) {
+    console.error('Primary database open failed:', err?.message || err);
+    if (!useTurso && isVercel && allowEphemeral) {
+      try {
+        // Last-resort: in-memory DB for demo only
+        db = await openDatabase(':memory:');
+        console.warn('Using in-memory SQLite database (serverless fallback)');
+        return db;
+      } catch (e) {
+        console.error('Fallback in-memory database open failed:', e?.message || e);
+        throw e;
+      }
+    } else {
+      throw err;
     }
-  } else {
-    throw err;
   }
-}
+})();
 
 // Helper function to run queries with promises
 // If using Turso (libSQL) `db` will be a client with an execute method.
 export const run = async (sql, params = []) => {
+  // Ensure DB is initialized
+  await dbPromise;
+
   if (useTurso) {
     try {
       const res = await db.execute({ sql, args: params });
@@ -263,6 +273,9 @@ export const run = async (sql, params = []) => {
 
 // Helper function to get single row
 export const get = async (sql, params = []) => {
+  // Ensure DB is initialized
+  await dbPromise;
+
   if (useTurso) {
     const res = await db.execute({ sql, args: params });
     // convert rows/columns to object rows
@@ -288,6 +301,9 @@ export const get = async (sql, params = []) => {
 
 // Helper function to get all rows
 export const all = async (sql, params = []) => {
+  // Ensure DB is initialized
+  await dbPromise;
+
   if (useTurso) {
     const res = await db.execute({ sql, args: params });
     const cols = res?.columns || [];
