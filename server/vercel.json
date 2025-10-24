@@ -17,9 +17,9 @@
       "memory": 1024,
       "maxDuration": 60
     },
-    "api/health.js": {
-      "memory": 256,
-      "maxDuration": 10
+    "api/migrate.js": {
+      "memory": 1024,
+      "maxDuration": 300
     }
   },
   "rewrites": [
