@@ -20,6 +20,7 @@ const allowEphemeral = (getEnv('ALLOW_EPHEMERAL_DB', '').toLowerCase() === 'true
 const useTurso = !!(tursoUrl && tursoUrl.trim());
 if (useTurso) {
   console.log('[DB] TURSO_DATABASE_URL detected - using Turso (libSQL) client for database');
+  console.log('[DB] TURSO_AUTH_TOKEN is', tursoAuthToken ? `present (length: ${tursoAuthToken.length})` : 'MISSING');
 } else {
   console.log('[DB] Using local SQLite database');
 }
@@ -196,8 +197,15 @@ async function openDatabase(path) {
   // If using Turso/libSQL, create a client and run migrations there
   if (useTurso) {
     if (!tursoUrl) throw new Error('TURSO_DATABASE_URL is not configured');
+    if (!tursoAuthToken || tursoAuthToken.trim() === '') {
+      throw new Error('TURSO_AUTH_TOKEN is not configured. Please set it in your Vercel environment variables.');
+    }
     try {
-      const client = createClient({ url: tursoUrl, auth: { token: tursoAuthToken } });
+      console.log('[DB] Connecting to Turso with auth token (length:', tursoAuthToken.length, ')');
+      const client = createClient({ 
+        url: tursoUrl, 
+        authToken: tursoAuthToken 
+      });
       // Run schema and cleanup on Turso
       await createMinimalSchema(client, true);
       await normalizeExistingUsernames(client, true);
