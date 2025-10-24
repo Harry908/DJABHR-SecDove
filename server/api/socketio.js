@@ -33,7 +33,7 @@ function applyCors(req, res) {
   return true;
 }
 
-module.exports = async (req, res) => {
+export default async (req, res) => {
   const corsAllowed = applyCors(req, res);
 
   if (!corsAllowed) {
