@@ -108,27 +108,25 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
   ];
 
   if (isTursoClient) {
-    // Using libSQL client - execute all statements in a single batch string.
-    // Some libSQL transports expect a single SQL string rather than multiple
-    // individual calls; joining with semicolons is simpler and avoids
-    // transport-specific parsing issues.
+    // Execute statements individually for Turso to avoid batch processing issues
+    console.log(`[DB] Creating schema with ${statements.length} statements individually`);
 
-    // Filter out any undefined/null statements and ensure all are strings
-    const validStatements = statements.filter(stmt => stmt && typeof stmt === 'string');
-    if (validStatements.length !== statements.length) {
-      console.warn(`[DB] Filtered out ${statements.length - validStatements.length} invalid SQL statements`);
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i];
+      if (!stmt || typeof stmt !== 'string') {
+        console.warn(`[DB] Skipping invalid statement at index ${i}:`, stmt);
+        continue;
+      }
+
+      try {
+        await databaseOrClient.execute({ sql: stmt });
+      } catch (e) {
+        console.error(`[DB] Failed to execute statement ${i}:`, stmt, e);
+        throw e;
+      }
     }
 
-    const batchSql = validStatements.join(';\n');
-    console.log(`[DB] Executing batch SQL with ${validStatements.length} statements`);
-
-    try {
-      await databaseOrClient.execute({ sql: batchSql });
-      console.log('[DB] Schema creation successful');
-    } catch (e) {
-      console.error('[DB] Schema creation failed:', e);
-      throw e;
-    }
+    console.log('[DB] Schema creation successful');
     return;
   }
 
@@ -166,11 +164,14 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
   ];
 
   if (isTursoClient) {
-    try {
-      const batchSql = cleanupStatements.join(';\n');
-      await databaseOrClient.execute({ sql: batchSql });
-    } catch (e) {
-      // best-effort: ignore failures in cleanup
+    // Execute cleanup statements individually for Turso
+    for (const stmt of cleanupStatements) {
+      try {
+        await databaseOrClient.execute({ sql: stmt });
+      } catch (e) {
+        // best-effort: ignore failures in cleanup
+        console.warn(`[DB] Cleanup statement failed (expected): ${stmt.substring(0, 50)}...`);
+      }
     }
     return;
   }

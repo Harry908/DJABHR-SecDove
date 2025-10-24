@@ -13,8 +13,13 @@ import { getEnv } from './config/env.js';
 
 const app = express();
 // Behind Vercel or proxy platforms, trust proxy so express-rate-limit can
-// correctly extract client IPs from X-Forwarded-For. Default to true.
-app.set('trust proxy', true);
+// correctly extract client IPs from X-Forwarded-For. For security, only trust
+// the first proxy (Vercel's proxy) in serverless environments.
+if (process.env.VERCEL) {
+  app.set('trust proxy', 1); // Trust only the first proxy
+} else {
+  app.set('trust proxy', true); // Trust all proxies in development
+}
 const httpServer = createServer(app);
 const nodeEnv = getEnv('NODE_ENV', 'development');
 const isDevelopment = nodeEnv === 'development';
