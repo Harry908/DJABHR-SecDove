@@ -16,10 +16,12 @@ const tursoAuthToken = getEnv('TURSO_AUTH_TOKEN', '');
 const isVercel = !!process.env.VERCEL;
 const allowEphemeral = (getEnv('ALLOW_EPHEMERAL_DB', '').toLowerCase() === 'true');
 
-// If TURSO_DATABASE_URL is set, use the Turso (libSQL) client instead of local sqlite
-const useTurso = !!tursoUrl;
+// If TURSO_DATABASE_URL is set and not empty, use the Turso (libSQL) client instead of local sqlite
+const useTurso = !!(tursoUrl && tursoUrl.trim());
 if (useTurso) {
   console.log('[DB] TURSO_DATABASE_URL detected - using Turso (libSQL) client for database');
+} else {
+  console.log('[DB] Using local SQLite database');
 }
 
 if (!useTurso) {
@@ -30,7 +32,7 @@ if (!useTurso) {
       configuredPath = '/tmp/securedove.db';
       console.warn('[DB] Using EPHEMERAL /tmp SQLite on Vercel (ALLOW_EPHEMERAL_DB=true). Data will not persist.');
     } else {
-      console.error('[DB] Persistent database not configured. Set DB_PATH to a managed database or enable ALLOW_EPHEMERAL_DB for demo-only.');
+      console.error('[DB] Persistent database not configured for Vercel. Set TURSO_DATABASE_URL for Turso or ALLOW_EPHEMERAL_DB=true for demo-only ephemeral DB.');
       configuredPath = null;
     }
   }
@@ -110,8 +112,23 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
     // Some libSQL transports expect a single SQL string rather than multiple
     // individual calls; joining with semicolons is simpler and avoids
     // transport-specific parsing issues.
-    const batchSql = statements.join(';\n');
-    await databaseOrClient.execute({ sql: batchSql });
+
+    // Filter out any undefined/null statements and ensure all are strings
+    const validStatements = statements.filter(stmt => stmt && typeof stmt === 'string');
+    if (validStatements.length !== statements.length) {
+      console.warn(`[DB] Filtered out ${statements.length - validStatements.length} invalid SQL statements`);
+    }
+
+    const batchSql = validStatements.join(';\n');
+    console.log(`[DB] Executing batch SQL with ${validStatements.length} statements`);
+
+    try {
+      await databaseOrClient.execute({ sql: batchSql });
+      console.log('[DB] Schema creation successful');
+    } catch (e) {
+      console.error('[DB] Schema creation failed:', e);
+      throw e;
+    }
     return;
   }
 
@@ -222,33 +239,40 @@ async function openDatabase(path) {
 // await initialization without relying on top-level await (which breaks in
 // some CommonJS-compiled environments).
 let db;
-const dbPromise = (async () => {
-  try {
-    db = await openDatabase(configuredPath);
-    return db;
-  } catch (err) {
-    console.error('Primary database open failed:', err?.message || err);
-    if (!useTurso && isVercel && allowEphemeral) {
+let dbPromise;
+
+const getDbPromise = () => {
+  if (!dbPromise) {
+    dbPromise = (async () => {
       try {
-        // Last-resort: in-memory DB for demo only
-        db = await openDatabase(':memory:');
-        console.warn('Using in-memory SQLite database (serverless fallback)');
+        db = await openDatabase(configuredPath);
         return db;
-      } catch (e) {
-        console.error('Fallback in-memory database open failed:', e?.message || e);
-        throw e;
+      } catch (err) {
+        console.error('Primary database open failed:', err?.message || err);
+        if (!useTurso && isVercel && allowEphemeral) {
+          try {
+            // Last-resort: in-memory DB for demo only
+            db = await openDatabase(':memory:');
+            console.warn('Using in-memory SQLite database (serverless fallback)');
+            return db;
+          } catch (e) {
+            console.error('Fallback in-memory database open failed:', e?.message || e);
+            throw e;
+          }
+        } else {
+          throw err;
+        }
       }
-    } else {
-      throw err;
-    }
+    })();
   }
-})();
+  return dbPromise;
+};
 
 // Helper function to run queries with promises
 // If using Turso (libSQL) `db` will be a client with an execute method.
 export const run = async (sql, params = []) => {
   // Ensure DB is initialized
-  await dbPromise;
+  await getDbPromise();
 
   if (useTurso) {
     try {
@@ -274,7 +298,7 @@ export const run = async (sql, params = []) => {
 // Helper function to get single row
 export const get = async (sql, params = []) => {
   // Ensure DB is initialized
-  await dbPromise;
+  await getDbPromise();
 
   if (useTurso) {
     const res = await db.execute({ sql, args: params });
@@ -302,7 +326,7 @@ export const get = async (sql, params = []) => {
 // Helper function to get all rows
 export const all = async (sql, params = []) => {
   // Ensure DB is initialized
-  await dbPromise;
+  await getDbPromise();
 
   if (useTurso) {
     const res = await db.execute({ sql, args: params });

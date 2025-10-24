@@ -150,10 +150,10 @@ router.post('/logout', authenticateToken, (req, res) => {
   res.json({ message: 'Logout successful' });
 });
 
-// GET /api/auth/check-username/:username - Check if username exists (public route)
-router.get('/check-username/:username', async (req, res) => {
+// GET /api/auth/check-username - Check if username exists (public route)
+router.get('/check-username', async (req, res) => {
   try {
-  const { username } = req.params;
+  const { username } = req.query;
   const normalizedUsername = normalizeUsername(username);
 
     // Validate username format
@@ -164,7 +164,7 @@ router.get('/check-username/:username', async (req, res) => {
     // Check if username exists
     const existingUser = await get('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [normalizedUsername]);
     
-    res.json({ exists: !!existingUser });
+    res.json({ available: !existingUser, username: normalizedUsername });
   } catch (error) {
     console.error('Check username error:', error);
     res.status(500).json({ error: 'Internal server error' });

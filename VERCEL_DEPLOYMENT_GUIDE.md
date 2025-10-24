@@ -79,8 +79,8 @@ Go to **Settings → Environment Variables** and add:
 ```env
 NODE_ENV=production
 JWT_SECRET=<generate-strong-random-32-char-secret>
-DB_PATH=/tmp/securedove.db
-ALLOW_EPHEMERAL_DB=true
+TURSO_DATABASE_URL=<your-turso-database-url>
+TURSO_AUTH_TOKEN=<your-turso-auth-token>
 CORS_ORIGIN=https://secdove-frontend.vercel.app
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
@@ -93,9 +93,17 @@ LOGIN_RATE_LIMIT_MAX_REQUESTS=5
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+**Setup Turso Database:**
+1. Install Turso CLI: `npm install -g @tursodatabase/turso-cli`
+2. Login: `turso auth login`
+3. Create database: `turso db create securedove`
+4. Get database URL: `turso db show securedove`
+5. Create auth token: `turso db tokens create securedove`
+
 ⚠️ **IMPORTANT:**
 - `CORS_ORIGIN` should match your frontend URL EXACTLY (update after frontend is deployed)
 - For now, use the default or your expected frontend URL
+- **Turso provides persistent storage** - your data will survive redeployments
 
 #### 1.4 Deploy Backend
 
@@ -297,18 +305,18 @@ socket.on('connect', () => console.log('Connected!'));
 
 **Symptom:**
 ```json
-{"error":"Server unavailable","hint":"Ensure DB_PATH or ALLOW_EPHEMERAL_DB is set..."}
+{"error":"Server unavailable","hint":"Ensure TURSO_DATABASE_URL is configured..."}
 ```
 
-**Cause:** Database environment variables not set.
+**Cause:** Turso database environment variables not set.
 
 **Solution:**
 1. Go to backend Settings → Environment Variables
-2. Add: `DB_PATH=/tmp/securedove.db`
-3. Add: `ALLOW_EPHEMERAL_DB=true`
+2. Add: `TURSO_DATABASE_URL=<your-turso-url>`
+3. Add: `TURSO_AUTH_TOKEN=<your-turso-token>`
 4. **Redeploy backend**
 
-⚠️ **Note:** `/tmp/` is ephemeral - data resets on redeployment. For production, use a managed database (Turso, PlanetScale, etc.)
+⚠️ **Note:** Make sure your Turso database is created and accessible. Test locally first with the same environment variables.
 
 ---
 
