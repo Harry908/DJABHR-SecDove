@@ -360,11 +360,14 @@ export const get = async (sql, params = []) => {
       const res = await db.execute({ sql, args: params });
       // convert rows/columns to object rows
       const cols = res?.columns || [];
+      console.log('[DB] Query columns:', cols.map(c => c.name));
       const rows = (res?.rows || []).map(r => {
         const obj = {};
         for (let i = 0; i < cols.length; i++) {
           obj[cols[i].name] = r[i];
         }
+        console.log('[DB] Raw row data:', r);
+        console.log('[DB] Mapped row:', obj);
         return convertBigIntToNumber(obj);
       });
       return rows[0] || null;

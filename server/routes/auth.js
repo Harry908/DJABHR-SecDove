@@ -81,12 +81,16 @@ router.post('/login', loginLimiter, async (req, res) => {
       [normalizedUsername]
     );
 
+    console.log('Database query result:', JSON.stringify(user, null, 2));
+
     if (!user) {
       console.log('User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     console.log('User found:', user.username);
+    console.log('User object keys:', Object.keys(user));
+    console.log('Password hash exists:', !!user.password_hash);
 
     // Verify password
     const isValidPassword = await verifyPassword(password, user.password_hash);
