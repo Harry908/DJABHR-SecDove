@@ -3,10 +3,19 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Resolve dirname in a way that works for both ESM (import.meta.url) and
+// compiled CommonJS (where import.meta is not available and __dirname exists).
+const resolvedDirname = (() => {
+  try {
+    // ESM environment
+    return dirname(fileURLToPath(import.meta.url));
+  } catch (e) {
+    // CommonJS fallback or other environments
+    return typeof __dirname !== 'undefined' ? __dirname : process.cwd();
+  }
+})();
 
-const dbPath = join(__dirname, '..', 'database', 'securedove.db');
+const dbPath = join(resolvedDirname, '..', 'database', 'securedove.db');
 
 // Expected schema structure
 const EXPECTED_TABLES = {
