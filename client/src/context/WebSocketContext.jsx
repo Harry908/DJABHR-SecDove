@@ -30,7 +30,11 @@ export const WebSocketProvider = ({ children }) => {
       autoConnect: true,
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 5
+      reconnectionAttempts: 5,
+      transports: ['polling'], // Force polling transport for Vercel compatibility
+      upgrade: false, // Disable WebSocket upgrade attempts
+      rememberUpgrade: false, // Don't remember upgrade capability
+      timeout: 20000 // Increase timeout for polling
     });
 
     socketRef.current = socket;

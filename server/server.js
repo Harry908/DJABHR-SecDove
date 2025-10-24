@@ -72,7 +72,9 @@ const io = new Server(httpServer, {
     },
     credentials: true,
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['polling'], // Force polling transport for Vercel compatibility
+  allowUpgrades: false // Disable WebSocket upgrade attempts
 });
 app.set('io', io);
 

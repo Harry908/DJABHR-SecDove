@@ -37,6 +37,15 @@ router.post('/', authenticateToken, async (req, res) => {
       }
     }
 
+    // Validate that all usernames exist in the users table
+    const uniqueUsernames = Array.from(new Set(normalizedEntries.map(entry => entry.username)));
+    for (const username of uniqueUsernames) {
+      const userExists = await get('SELECT id FROM users WHERE username = ? COLLATE NOCASE', [username]);
+      if (!userExists) {
+        return res.status(400).json({ error: `User ${username} not found` });
+      }
+    }
+
     // Verify current user is in the conversation
   const userInConversation = normalizedEntries.some(entry => entry.username === currentUsername);
     
