@@ -12,6 +12,9 @@ import messagesRoutes from './routes/messages.js';
 import { getEnv } from './config/env.js';
 
 const app = express();
+// Behind Vercel or proxy platforms, trust proxy so express-rate-limit can
+// correctly extract client IPs from X-Forwarded-For. Default to true.
+app.set('trust proxy', true);
 const httpServer = createServer(app);
 const nodeEnv = getEnv('NODE_ENV', 'development');
 const isDevelopment = nodeEnv === 'development';

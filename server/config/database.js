@@ -106,11 +106,12 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
   ];
 
   if (isTursoClient) {
-    // Using libSQL client - execute statements sequentially
-    for (const stmt of statements) {
-      // libsql client execute may expect a simple call
-      await databaseOrClient.execute({ sql: stmt });
-    }
+    // Using libSQL client - execute all statements in a single batch string.
+    // Some libSQL transports expect a single SQL string rather than multiple
+    // individual calls; joining with semicolons is simpler and avoids
+    // transport-specific parsing issues.
+    const batchSql = statements.join(';\n');
+    await databaseOrClient.execute({ sql: batchSql });
     return;
   }
 
@@ -148,12 +149,11 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
   ];
 
   if (isTursoClient) {
-    for (const stmt of cleanupStatements) {
-      try {
-        await databaseOrClient.execute({ sql: stmt });
-      } catch (e) {
-        // best-effort: ignore failures in cleanup
-      }
+    try {
+      const batchSql = cleanupStatements.join(';\n');
+      await databaseOrClient.execute({ sql: batchSql });
+    } catch (e) {
+      // best-effort: ignore failures in cleanup
     }
     return;
   }
