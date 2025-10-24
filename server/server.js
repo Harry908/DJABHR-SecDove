@@ -17,6 +17,14 @@ const nodeEnv = getEnv('NODE_ENV', 'development');
 const isDevelopment = nodeEnv === 'development';
 const PORT = Number.parseInt(getEnv('PORT', 3000), 10);
 
+// Log database mode at startup to make Vercel logs clearer
+const _tursoUrl = getEnv('TURSO_DATABASE_URL', '');
+if (_tursoUrl) {
+  console.log(`[DB MODE] Using Turso (libSQL) at: ${_tursoUrl}`);
+} else {
+  console.log(`[DB MODE] Using local SQLite. DB_PATH=${getEnv('DB_PATH', 'default')}`);
+}
+
 // CORS origin can be a single origin or comma-separated list of origins
 const DEFAULT_ORIGIN = 'https://secdove-frontend.vercel.app';
 const corsOriginEnv = getEnv('CORS_ORIGIN', DEFAULT_ORIGIN);
