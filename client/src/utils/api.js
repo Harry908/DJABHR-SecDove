@@ -79,7 +79,7 @@ export const authAPI = {
   },
 
   checkUsername: async (username) => {
-    return await request(`/auth/check-username/${encodeURIComponent(username)}`);
+    return await request(`/auth/check-username`, { params: { username } });
   }
 };
 

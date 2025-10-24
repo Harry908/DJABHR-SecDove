@@ -175,8 +175,8 @@ export const AuthProvider = ({ children }) => {
 
   const checkUsernameExists = async (username) => {
     try {
-      const { exists } = await authAPI.checkUsername(username);
-      return exists;
+      const { available } = await authAPI.checkUsername(username);
+      return !available;
     } catch {
       return false;
     }
