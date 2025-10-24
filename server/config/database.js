@@ -294,6 +294,21 @@ const initializeDatabase = async () => {
 // Simplified promise-based getter
 const getDbPromise = () => initializeDatabase();
 
+// Helper function to convert BigInt values to Number for JSON compatibility
+const convertBigIntToNumber = (obj) => {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'bigint') return Number(obj);
+  if (Array.isArray(obj)) return obj.map(convertBigIntToNumber);
+  if (typeof obj === 'object') {
+    const converted = {};
+    for (const [key, value] of Object.entries(obj)) {
+      converted[key] = typeof value === 'bigint' ? Number(value) : value;
+    }
+    return converted;
+  }
+  return obj;
+};
+
 // Helper function to run queries with promises
 // If using Turso (libSQL) `db` will be a client with an execute method.
 export const run = async (sql, params = []) => {
@@ -307,8 +322,12 @@ export const run = async (sql, params = []) => {
   try {
     if (useTurso) {
       const res = await db.execute({ sql, args: params });
-      // libSQL doesn't expose lastID in a consistent way; return best-effort shape
-      return { id: res?.lastInsertRowid ?? null, changes: res?.meta?.changes ?? (res?.rows?.length ?? 0) };
+      // libSQL returns BigInt for lastInsertRowid, convert to Number for JSON compatibility
+      const lastId = res?.lastInsertRowid;
+      return { 
+        id: lastId !== null && lastId !== undefined ? Number(lastId) : null, 
+        changes: res?.meta?.changes ?? (res?.rows?.length ?? 0) 
+      };
     }
 
     return new Promise((resolve, reject) => {
@@ -343,8 +362,10 @@ export const get = async (sql, params = []) => {
       const cols = res?.columns || [];
       const rows = (res?.rows || []).map(r => {
         const obj = {};
-        for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
-        return obj;
+        for (let i = 0; i < cols.length; i++) {
+          obj[cols[i].name] = r[i];
+        }
+        return convertBigIntToNumber(obj);
       });
       return rows[0] || null;
     }
@@ -380,8 +401,10 @@ export const all = async (sql, params = []) => {
       const cols = res?.columns || [];
       const rows = (res?.rows || []).map(r => {
         const obj = {};
-        for (let i = 0; i < cols.length; i++) obj[cols[i].name] = r[i];
-        return obj;
+        for (let i = 0; i < cols.length; i++) {
+          obj[cols[i].name] = r[i];
+        }
+        return convertBigIntToNumber(obj);
       });
       return rows;
     }
