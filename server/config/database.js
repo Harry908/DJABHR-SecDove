@@ -152,6 +152,13 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
 }
 
 async function normalizeExistingUsernames(databaseOrClient, isTursoClient = false) {
+  // For Turso, skip normalization that might conflict with foreign keys
+  // since this is likely a fresh database anyway
+  if (isTursoClient) {
+    console.log('[DB] Skipping username normalization for Turso (fresh database)');
+    return;
+  }
+
   const cleanupStatements = [
     `UPDATE users SET username = LOWER(TRIM(username))`,
     `UPDATE contacts SET contact_username = LOWER(TRIM(contact_username))`,
@@ -159,18 +166,6 @@ async function normalizeExistingUsernames(databaseOrClient, isTursoClient = fals
     `UPDATE messages SET sender_username = LOWER(TRIM(sender_username)) WHERE sender_username IS NOT NULL`,
     `UPDATE conversation_events SET actor_username = LOWER(TRIM(actor_username)) WHERE actor_username IS NOT NULL`
   ];
-
-  if (isTursoClient) {
-    // Execute cleanup statements via batch for Turso - log but don't fail
-    try {
-      await databaseOrClient.batch(cleanupStatements.map(sql => ({ sql, args: [] })), "write");
-      console.log('[DB] Username normalization completed');
-    } catch (e) {
-      // Log the error but don't fail - cleanup is best-effort
-      console.warn(`[DB] Username normalization failed (non-critical): ${e.message}`);
-    }
-    return;
-  }
 
   return new Promise((resolve) => {
     databaseOrClient.serialize(() => {
