@@ -77,7 +77,7 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
     `CREATE TABLE IF NOT EXISTS conversations (
       id INTEGER NOT NULL,
       content_key_number INTEGER NOT NULL,
-      username TEXT NOT NULL,
+      username TEXT NOT NULL COLLATE NOCASE,
       encrypted_content_key TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       PRIMARY KEY (id, content_key_number, username),
@@ -90,10 +90,11 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
       conversation_id INTEGER NOT NULL,
       content_key_number INTEGER NOT NULL,
       encrypted_msg_content TEXT NOT NULL,
-      sender_username TEXT,
+      sender_username TEXT COLLATE NOCASE,
       created_at INTEGER NOT NULL,
       updated_at INTEGER,
-      is_deleted INTEGER DEFAULT 0
+      is_deleted INTEGER DEFAULT 0,
+      FOREIGN KEY (sender_username) REFERENCES users(username) ON DELETE SET NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, content_key_number)`,
     `CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`,
@@ -101,9 +102,10 @@ async function createMinimalSchema(databaseOrClient, isTursoClient = false) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       conversation_id INTEGER NOT NULL,
       type TEXT NOT NULL,
-      actor_username TEXT,
+      actor_username TEXT COLLATE NOCASE,
       details TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (actor_username) REFERENCES users(username) ON DELETE SET NULL
     )`,
     `CREATE INDEX IF NOT EXISTS idx_events_conversation ON conversation_events(conversation_id, created_at)`
   ];
